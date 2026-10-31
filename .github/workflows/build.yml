@@ -1,0 +1,100 @@
+name: Build Ollama Studio macOS App & DMG
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Compile Native Apple Silicon App & DMG
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Verify Swift Toolchain & macOS SDK
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Compile Release Universal/ARM64 Binary
+        run: |
+          swift build -c release --arch arm64
+
+      - name: Package Native macOS .app Bundle
+        run: |
+          APP_NAME="Ollama Studio"
+          BUNDLE_DIR="build/${APP_NAME}.app"
+          rm -rf build
+          mkdir -p "${BUNDLE_DIR}/Contents/MacOS"
+          mkdir -p "${BUNDLE_DIR}/Contents/Resources"
+
+          cp ".build/arm64-apple-macosx/release/OllamaStudio" "${BUNDLE_DIR}/Contents/MacOS/OllamaStudio"
+          chmod +x "${BUNDLE_DIR}/Contents/MacOS/OllamaStudio"
+
+          cat << 'EOF' > "${BUNDLE_DIR}/Contents/Info.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>OllamaStudio</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.ollamastudio.desktop</string>
+              <key>CFBundleName</key>
+              <string>Ollama Studio</string>
+              <key>CFBundleDisplayName</key>
+              <string>Ollama Studio</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundleVersion</key>
+              <string>100</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSAppTransportSecurity</key>
+              <dict>
+                  <key>NSAllowsLocalNetworking</key>
+                  <true/>
+                  <key>NSAllowsArbitraryLoads</key>
+                  <true/>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+
+          # Ad-hoc code sign so macOS Gatekeeper recognizes a valid bundle structure
+          codesign --force --deep --sign - "${BUNDLE_DIR}"
+
+      - name: Build Distributable macOS .dmg Installer
+        run: |
+          mkdir -p dmg_staging
+          cp -R "build/Ollama Studio.app" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "Ollama Studio" \
+            -srcfolder dmg_staging \
+            -ov -format UDZO \
+            "OllamaStudio-macOS-AppleSilicon.dmg"
+
+      - name: Upload DMG Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OllamaStudio-macOS-DMG
+          path: OllamaStudio-macOS-AppleSilicon.dmg
+          retention-days: 30
+
+      - name: Publish to GitHub Releases (Automatic on Push)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Ollama Studio v1.0.${{ github.run_number }} (macOS Apple Silicon)"
+          files: OllamaStudio-macOS-AppleSilicon.dmg
+          generate_release_notes: true
