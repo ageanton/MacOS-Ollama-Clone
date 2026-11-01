@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>AetherStudio</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.aether.studio</string>
+    <key>CFBundleName</key>
+    <string>Aether Studio</string>
+    <key>CFBundleDisplayName</key>
+    <string>Aether Studio</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Aether Studio requires access to external hard drives to store, discover, and stream local AI models.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Aether Studio requires access to documents to store chat conversations and model configurations.</string>
+    <key>NSFileProviderDomainUsageDescription</key>
+    <string>Aether Studio requires access to storage volumes to stream local AI model weights.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
