@@ -1,6 +1,6 @@
 name: Build Aether Studio macOS App & DMG
 
-on:
+'on':
   push:
     branches: [ "main", "master" ]
     tags: [ "v*" ]
@@ -36,7 +36,7 @@ jobs:
           mkdir -p Sources/AetherStudio/Views/Components
           mkdir -p Sources/AetherStudio/Resources
 
-          cat << EOF > "Package.swift"
+          cat << 'EOF' > "Package.swift"
           // swift-tools-version: 5.10
           import PackageDescription
           
@@ -72,7 +72,7 @@ jobs:
           )
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Core/Constants.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Core/Constants.swift"
           import Foundation
           
           public enum AetherConstants {
@@ -93,7 +93,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Core/DesignSystem.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Core/DesignSystem.swift"
           import SwiftUI
           import AppKit
           
@@ -285,7 +285,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Models/ModelEntities.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Models/ModelEntities.swift"
           import Foundation
           
           public struct OllamaModel: Identifiable, Codable, Equatable, Hashable {
@@ -441,7 +441,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Models/SamplingDials.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Models/SamplingDials.swift"
           import Foundation
           
           public struct SamplingDials: Codable, Equatable, Hashable {
@@ -479,7 +479,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Models/Conversation.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Models/Conversation.swift"
           import Foundation
           
           public enum MessageRole: String, Codable, Equatable {
@@ -568,7 +568,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Models/StorageConfig.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Models/StorageConfig.swift"
           import Foundation
           
           public struct ExternalVolumeStatus: Equatable {
@@ -745,7 +745,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Services/ExternalDriveManager.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Services/ExternalDriveManager.swift"
           import Foundation
           import AppKit
           
@@ -951,7 +951,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Services/ProcessSupervisor.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Services/ProcessSupervisor.swift"
           import Foundation
           
           @MainActor
@@ -1054,7 +1054,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Services/OllamaClient.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Services/OllamaClient.swift"
           import Foundation
           
           public struct ChatStreamChunk {
@@ -1226,7 +1226,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Services/HardwareMonitor.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Services/HardwareMonitor.swift"
           import Foundation
           import Darwin
           
@@ -1309,7 +1309,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Services/VaultStorage.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Services/VaultStorage.swift"
           import Foundation
           
           public struct PersistedVault: Codable {
@@ -1349,7 +1349,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Components/StatusBadges.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Components/StatusBadges.swift"
           import SwiftUI
           
           public struct PillBadge: View {
@@ -1389,7 +1389,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Sidebar/ConversationSidebarView.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Sidebar/ConversationSidebarView.swift"
           import SwiftUI
           
           public struct ConversationSidebarView: View {
@@ -1541,7 +1541,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Chat/ModelPickerMenu.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Chat/ModelPickerMenu.swift"
           import SwiftUI
           
           public struct ModelPickerMenu: View {
@@ -1716,7 +1716,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Chat/MessageRowView.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Chat/MessageRowView.swift"
           import SwiftUI
           import AppKit
           
@@ -1813,8 +1813,9 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Chat/ChatInputBar.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Chat/ChatInputBar.swift"
           import SwiftUI
+          import AppKit
           
           public struct ChatInputBar: View {
               @EnvironmentObject private var coordinator: AppCoordinator
@@ -1906,7 +1907,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Chat/ChatContainerView.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Chat/ChatContainerView.swift"
           import SwiftUI
           
           public struct ChatContainerView: View {
@@ -2031,7 +2032,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Settings/ExternalDriveSettingsView.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Settings/ExternalDriveSettingsView.swift"
           import SwiftUI
           import AppKit
           import UniformTypeIdentifiers
@@ -2247,7 +2248,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Settings/EngineSettingsView.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Settings/EngineSettingsView.swift"
           import SwiftUI
           
           public struct EngineSettingsView: View {
@@ -2363,7 +2364,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/Settings/SamplingDialsInspector.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/Settings/SamplingDialsInspector.swift"
           import SwiftUI
           
           public struct SamplingDialsInspector: View {
@@ -2553,7 +2554,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/Views/RootView.swift"
+          cat << 'EOF' > "Sources/AetherStudio/Views/RootView.swift"
           import SwiftUI
           
           public struct RootView: View {
@@ -2681,7 +2682,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/App/AppCoordinator.swift"
+          cat << 'EOF' > "Sources/AetherStudio/App/AppCoordinator.swift"
           import SwiftUI
           import AppKit
           
@@ -2959,7 +2960,7 @@ jobs:
           }
           EOF
 
-          cat << EOF > "Sources/AetherStudio/App/AetherApp.swift"
+          cat << 'EOF' > "Sources/AetherStudio/App/AetherApp.swift"
           import SwiftUI
           
           @main
@@ -3036,7 +3037,7 @@ jobs:
           cp ".build/arm64-apple-macosx/release/AetherStudio" "${MACOS_DIR}/AetherStudio"
           chmod +x "${MACOS_DIR}/AetherStudio"
 
-          cat << EOF > "${CONTENTS_DIR}/Info.plist"
+          cat << \x27EOF\x27 > "${CONTENTS_DIR}/Info.plist"
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
