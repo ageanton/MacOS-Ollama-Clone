@@ -1497,7 +1497,8 @@ jobs:
 
               public var modelsDirectoryPath: String = {
                   ServerConfig.detectDefaultModelsPath()
-              }()              public var rememberedExternalModelsPath: String = {
+              }()
+              public var rememberedExternalModelsPath: String = {
                   UserDefaults.standard.string(forKey: "studio.v5.externalModelsPath") ?? ""
               }()
               public var rememberedExternalVolumeName: String = {
