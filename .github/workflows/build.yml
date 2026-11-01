@@ -14,7 +14,7 @@ permissions:
 jobs:
   build-macos:
     name: Generate Sources & Compile Apple Silicon DMG
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout Repository
