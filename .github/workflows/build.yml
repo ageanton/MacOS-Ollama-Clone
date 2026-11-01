@@ -4791,138 +4791,156 @@ jobs:
 
               public var body: some View {
                   VStack(alignment: .leading, spacing: 12) {
-                      HStack {
-                          Text("Select & Load Model")
-                              .font(theme.bodyFont(boost: 1))
-                              .foregroundStyle(palette.primaryText)
-                          Spacer()
-                          Button("Storage & External Drive...") {
-                              onDismiss()
-                              appState.selectedSettingsTab = .storageAndModels
-                              appState.isSettingsWindowOpen = true
-                          }
-                          .buttonStyle(.plain)
-                          .font(theme.captionFont(boost: 1))
-                          .foregroundStyle(palette.accent)
-                      }
-
-                      if appState.installedModels.isEmpty && appState.discoveredRawGGUFFiles.isEmpty {
-                          Text("No models detected in \(appState.serverConfig.modelsDirectoryPath). Click 'Storage & External Drive...' above to select your external models folder or import raw .gguf files.")
-                              .font(theme.captionFont())
-                              .foregroundStyle(palette.secondaryText)
-                              .padding(.vertical, 8)
-                      } else {
-                          ScrollView {
-                              VStack(alignment: .leading, spacing: 6) {
-                                  ForEach(appState.installedModels) { model in
-                                      let isSelected = appState.activeConversation?.selectedModel == model.name
-                                      let isLoaded = appState.isModelCurrentlyInMemory(model.name)
-
-                                      HStack(spacing: 10) {
-                                          Circle()
-                                              .fill(isLoaded ? palette.statusHealthy : palette.mutedText.opacity(0.35))
-                                              .frame(width: 7, height: 7)
-
-                                          VStack(alignment: .leading, spacing: 2) {
-                                              Text(model.cleanDisplayName)
-                                                  .font(theme.bodyFont(boost: isSelected ? 1 : 0))
-                                                  .foregroundStyle(palette.primaryText)
-                                              HStack(spacing: 6) {
-                                                  Text(model.formattedSize)
-                                                      .font(theme.monoFont(size: 10.5))
-                                                      .foregroundStyle(palette.mutedText)
-                                                  if let q = model.details?.quantizationLevel {
-                                                      Text(q)
-                                                          .font(theme.monoFont(size: 10.5))
-                                                          .foregroundStyle(palette.mutedText)
-                                                  }
-                                                  if isLoaded {
-                                                      Text("Loaded in RAM")
-                                                          .font(theme.captionFont(boost: 1))
-                                                          .foregroundStyle(palette.statusHealthy)
-                                                  }
-                                              }
-                                          }
-
-                                          Spacer()
-
-                                          if isLoaded {
-                                              Button("Unload") {
-                                                  appState.unloadModelFromMemory(model.name)
-                                              }
-                                              .buttonStyle(.plain)
-                                              .font(theme.captionFont(boost: 1))
-                                              .foregroundStyle(palette.statusDanger)
-                                              .padding(.horizontal, 8)
-                                              .padding(.vertical, 4)
-                                              .background(RoundedRectangle(cornerRadius: 5).fill(palette.subtleSurface))
-                                          } else {
-                                              Button("Select & Load") {
-                                                  appState.selectModelForActiveConversation(model.name)
-                                                  onDismiss()
-                                                  appState.requestLoadModelIntoMemory(model.name)
-                                              }
-                                              .buttonStyle(.plain)
-                                              .font(theme.captionFont(boost: 1))
-                                              .foregroundStyle(Color.white)
-                                              .padding(.horizontal, 9)
-                                              .padding(.vertical, 4.5)
-                                              .background(RoundedRectangle(cornerRadius: 5).fill(palette.accent))
-                                          }
-                                      }
-                                      .padding(8)
-                                      .background(
-                                          RoundedRectangle(cornerRadius: 6)
-                                              .fill(isSelected ? palette.accentSoft : palette.cardSurface)
-                                      )
-                                      .onTapGesture {
-                                          appState.selectModelForActiveConversation(model.name)
-                                          onDismiss()
-                                      }
-                                  }
-
-                                  if !appState.discoveredRawGGUFFiles.isEmpty {
-                                      Divider().overlay(palette.hairlineBorder).padding(.vertical, 4)
-                                      HStack {
-                                          StudioIcon(.database, size: 12, color: palette.accent)
-                                          Text("Discovered on External Drive (\(appState.discoveredRawGGUFFiles.count))")
-                                              .font(theme.captionFont(boost: 1))
-                                              .foregroundStyle(palette.accent)
-                                          Spacer()
-                                      }
-
-                                      ForEach(appState.discoveredRawGGUFFiles) { gguf in
-                                          HStack(spacing: 10) {
-                                              Circle().fill(palette.accent.opacity(0.6)).frame(width: 7, height: 7)
-                                              VStack(alignment: .leading, spacing: 2) {
-                                                  Text(gguf.fileName).font(theme.bodyFont()).foregroundStyle(palette.primaryText).lineLimit(1)
-                                                  Text("\(gguf.formattedSize) ¬∑ External Volume").font(theme.monoFont(size: 10)).foregroundStyle(palette.mutedText)
-                                              }
-                                              Spacer()
-                                              Button(appState.isImportingGGUF ? "Loading..." : "Load into Chat") {
-                                                  appState.importDiscoveredGGUF(gguf)
-                                                  appState.selectModelForActiveConversation(gguf.suggestedModelTag)
-                                                  onDismiss()
-                                              }
-                                              .buttonStyle(.plain)
-                                              .font(theme.captionFont(boost: 1))
-                                              .foregroundStyle(palette.accent)
-                                              .padding(.horizontal, 8)
-                                              .padding(.vertical, 4)
-                                              .background(RoundedRectangle(cornerRadius: 5).fill(palette.accentSoft))
-                                          }
-                                          .padding(6)
-                                          .background(RoundedRectangle(cornerRadius: 6).fill(palette.cardSurface))
-                                      }
-                                  }
-                              }
-                          }
-                          .frame(maxHeight: 300)
-                      }
+                      headerView
+                      contentView
                   }
                   .padding(14)
                   .frame(width: 410)
                   .background(palette.elevatedSurface)
+              }
+
+              @ViewBuilder
+              private var headerView: some View {
+                  HStack {
+                      Text("Select & Load Model")
+                          .font(theme.bodyFont(boost: 1))
+                          .foregroundStyle(palette.primaryText)
+                      Spacer()
+                      Button("Storage & External Drive...") {
+                          onDismiss()
+                          appState.selectedSettingsTab = .storageAndModels
+                          appState.isSettingsWindowOpen = true
+                      }
+                      .buttonStyle(.plain)
+                      .font(theme.captionFont(boost: 1))
+                      .foregroundStyle(palette.accent)
+                  }
+              }
+
+              @ViewBuilder
+              private var contentView: some View {
+                  if appState.installedModels.isEmpty && appState.discoveredRawGGUFFiles.isEmpty {
+                      Text("No models detected in \(appState.serverConfig.modelsDirectoryPath). Click 'Storage & External Drive...' to select or auto-detect your external models folder.")
+                          .font(theme.captionFont())
+                          .foregroundStyle(palette.secondaryText)
+                          .padding(.vertical, 8)
+                  } else {
+                      ScrollView {
+                          VStack(alignment: .leading, spacing: 6) {
+                              ForEach(appState.installedModels) { model in
+                                  installedModelRow(for: model)
+                              }
+                              if !appState.discoveredRawGGUFFiles.isEmpty {
+                                  discoveredGGUFSection
+                              }
+                          }
+                      }
+                      .frame(maxHeight: 300)
+                  }
+              }
+
+              @ViewBuilder
+              private func installedModelRow(for model: OllamaModelSummary) -> some View {
+                  let isSelected = appState.activeConversation?.selectedModel == model.name
+                  let isLoaded = appState.isModelCurrentlyInMemory(model.name)
+
+                  HStack(spacing: 10) {
+                      Circle()
+                          .fill(isLoaded ? palette.statusHealthy : palette.mutedText.opacity(0.35))
+                          .frame(width: 7, height: 7)
+
+                      VStack(alignment: .leading, spacing: 2) {
+                          Text(model.cleanDisplayName)
+                              .font(theme.bodyFont(boost: isSelected ? 1 : 0))
+                              .foregroundStyle(palette.primaryText)
+                          HStack(spacing: 6) {
+                              Text(model.formattedSize)
+                                  .font(theme.monoFont(size: 10.5))
+                                  .foregroundStyle(palette.mutedText)
+                              if let q = model.details?.quantizationLevel {
+                                  Text(q)
+                                      .font(theme.monoFont(size: 10.5))
+                                      .foregroundStyle(palette.mutedText)
+                              }
+                              if isLoaded {
+                                  Text("Loaded in RAM")
+                                      .font(theme.captionFont(boost: 1))
+                                      .foregroundStyle(palette.statusHealthy)
+                              }
+                          }
+                      }
+
+                      Spacer()
+
+                      if isLoaded {
+                          Button("Unload") {
+                              appState.unloadModelFromMemory(model.name)
+                          }
+                          .buttonStyle(.plain)
+                          .font(theme.captionFont(boost: 1))
+                          .foregroundStyle(palette.statusDanger)
+                          .padding(.horizontal, 8)
+                          .padding(.vertical, 4)
+                          .background(RoundedRectangle(cornerRadius: 5).fill(palette.subtleSurface))
+                      } else {
+                          Button("Select & Load") {
+                              appState.selectModelForActiveConversation(model.name)
+                              onDismiss()
+                              appState.requestLoadModelIntoMemory(model.name)
+                          }
+                          .buttonStyle(.plain)
+                          .font(theme.captionFont(boost: 1))
+                          .foregroundStyle(Color.white)
+                          .padding(.horizontal, 9)
+                          .padding(.vertical, 4.5)
+                          .background(RoundedRectangle(cornerRadius: 5).fill(palette.accent))
+                      }
+                  }
+                  .padding(8)
+                  .background(
+                      RoundedRectangle(cornerRadius: 6)
+                          .fill(isSelected ? palette.accentSoft : palette.cardSurface)
+                  )
+                  .onTapGesture {
+                      appState.selectModelForActiveConversation(model.name)
+                      onDismiss()
+                  }
+              }
+
+              @ViewBuilder
+              private var discoveredGGUFSection: some View {
+                  Divider().overlay(palette.hairlineBorder).padding(.vertical, 4)
+                  HStack {
+                      StudioIcon(.database, size: 12, color: palette.accent)
+                      Text("Discovered on External Drive (\(appState.discoveredRawGGUFFiles.count))")
+                          .font(theme.captionFont(boost: 1))
+                          .foregroundStyle(palette.accent)
+                      Spacer()
+                  }
+
+                  ForEach(appState.discoveredRawGGUFFiles) { gguf in
+                      HStack(spacing: 10) {
+                          Circle().fill(palette.accent.opacity(0.6)).frame(width: 7, height: 7)
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(gguf.fileName).font(theme.bodyFont()).foregroundStyle(palette.primaryText).lineLimit(1)
+                              Text("\(gguf.formattedSize) ¬∑ External Volume").font(theme.monoFont(size: 10)).foregroundStyle(palette.mutedText)
+                          }
+                          Spacer()
+                          Button(appState.isImportingGGUF ? "Loading..." : "Load into Chat") {
+                              appState.importDiscoveredGGUF(gguf)
+                              appState.selectModelForActiveConversation(gguf.suggestedModelTag)
+                              onDismiss()
+                          }
+                          .buttonStyle(.plain)
+                          .font(theme.captionFont(boost: 1))
+                          .foregroundStyle(palette.accent)
+                          .padding(.horizontal, 8)
+                          .padding(.vertical, 4)
+                          .background(RoundedRectangle(cornerRadius: 5).fill(palette.accentSoft))
+                      }
+                      .padding(6)
+                      .background(RoundedRectangle(cornerRadius: 6).fill(palette.cardSurface))
+                  }
               }
           }
 
