@@ -471,7 +471,6 @@ jobs:
               case close = "xmark"
               case pin = "pin"
               case externalDrive = "externaldrive"
-              case database = "server.rack"
               case arrowDown = "arrow.down"
               case folder = "folder"
           }
