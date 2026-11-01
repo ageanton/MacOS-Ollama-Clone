@@ -2549,13 +2549,13 @@ jobs:
                                   modDate = d
                               }
 
-                              let details = OllamaModelDetails(
-                                  parentModel: "",
+                              let details = OllamaModelSummary.ModelDetails(
+                                  parentModel: nil,
                                   format: "gguf",
                                   family: modelName,
                                   families: [modelName],
-                                  parameterSize: "",
-                                  quantizationLevel: ""
+                                  parameterSize: nil,
+                                  quantizationLevel: nil
                               )
 
                               let summary = OllamaModelSummary(
