@@ -3103,7 +3103,7 @@ jobs:
           retention-days: 30
 
       - name: Publish to GitHub Releases (Tags Only)
-        if: startsWith(github.ref, refs/tags/)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: "Aether Studio ${{ github.ref_name }} (macOS Apple Silicon)"
