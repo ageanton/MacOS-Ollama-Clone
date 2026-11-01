@@ -1709,7 +1709,7 @@ jobs:
                       "OLLAMA_ORIGINS": allowedOrigins,
                       "OLLAMA_MODELS": modelsDirectoryPath,
                       "OLLAMA_KEEP_ALIVE": defaultKeepAlive,
-                      "OLLAMA_LOAD_TIMEOUT": loadTimeout,
+                      "OLLAMA_LOAD_TIMEOUT": "30m",
                       "OLLAMA_NUM_PARALLEL": "\(max(1, numParallel))",
                       "OLLAMA_MAX_LOADED_MODELS": "\(max(1, maxLoadedModels))",
                       "OLLAMA_MAX_QUEUE": "\(max(16, maxQueue))",
@@ -2164,20 +2164,20 @@ jobs:
                   var req = URLRequest(url: url)
                   req.httpMethod = "POST"
                   req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  req.timeoutInterval = 600 // 10 minutes timeout for streaming large weights from external storage
                   var payload: [String: Any] = [
                       "model": modelName,
                       "prompt": "",
                       "keep_alive": keepAlive,
                       "stream": false
                   ]
-                  if let ctx = numCtx {
+                  if let ctx = numCtx, ctx > 0 {
                       payload["options"] = ["num_ctx": ctx]
                   }
                   req.httpBody = try JSONSerialization.data(withJSONObject: payload)
                   let (data, response) = try await session.data(for: req)
                   try validateHTTP(response, data: data)
               }
-
               public func deleteModel(baseURL: String, modelName: String) async throws {
                   guard let url = URL(string: "\(baseURL)/api/delete") else { throw URLError(.badURL) }
                   var req = URLRequest(url: url)
@@ -2946,12 +2946,13 @@ jobs:
                       _ = serverConfig.restoreSecurityScopedAccessIfNeeded()
                       processManager.linkDefaultOllamaModelsDirToExternalPathIfNeeded(targetPath: serverConfig.modelsDirectoryPath)
                       await refreshEngineStatus()
+                      let engineTags = (try? await client.fetchInstalledModels(baseURL: serverConfig.baseURLString)) ?? []
                       if !isEngineOnline {
                           processManager.startManagedServer(config: serverConfig)
-                          try? await Task.sleep(nanoseconds: 900_000_000)
+                          try? await Task.sleep(nanoseconds: 1_200_000_000)
                           await refreshEngineStatus()
-                      } else if installedModels.isEmpty && serverConfig.isUsingExternalDriveForModels && externalDriveStatus.isCurrentlyMountedAndWritable {
-                          // Restart pre-existing daemon once so it picks up the external drive symlink
+                      } else if engineTags.isEmpty && !installedModels.isEmpty {
+                          // Pre-existing daemon is not reading the external drive. Restart with OLLAMA_MODELS:
                           await processManager.restartServerAndAwaitReady(with: serverConfig, client: client)
                           await refreshEngineStatus()
                       }
@@ -3106,36 +3107,67 @@ jobs:
                   activeModelLoadingState = ModelMemoryLoadingState(
                       modelName: targetModel,
                       totalBytes: totalBytes,
-                      loadedBytesEstimate: Int64(Double(totalBytes) * 0.06),
+                      loadedBytesEstimate: 0,
                       startedAt: Date(),
-                      statusNote: unloadFirst != nil ? "Unloading \(unloadFirst!)..." : "Reading weights into Unified Memory..."
+                      statusNote: unloadFirst != nil ? "Unloading \(unloadFirst!)..." : "Connecting engine to external drive..."
                   )
 
                   loadingProgressTimer?.invalidate()
-                  loadingProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                  loadingProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                       Task { @MainActor [weak self] in
                           guard let self = self, var state = self.activeModelLoadingState else { return }
                           self.hardware.refreshMetrics()
-                          let deltaBytes = max(0, self.hardware.usedMemoryBytes - baselineMemoryBytes)
-                          let elapsed = Date().timeIntervalSince(state.startedAt)
-                          let throughputEstimate = Int64(elapsed * 1_150_000_000.0)
-                          let combined = max(deltaBytes, min(Int64(Double(totalBytes) * 0.94), throughputEstimate))
-                          state.loadedBytesEstimate = max(state.loadedBytesEstimate, combined)
+                          // Check real-time VRAM / RAM residency from Ollama engine
+                          if let running = (try? await self.client.fetchRunningModels(baseURL: self.serverConfig.baseURLString))?.first(where: { $0.name == targetModel }) {
+                              let inMemory = max(running.size, running.sizeVram)
+                              state.loadedBytesEstimate = max(state.loadedBytesEstimate, inMemory)
+                              state.statusNote = "Model active in Unified Memory (\(running.formattedRAM))"
+                          } else {
+                              let ramDelta = max(0, self.hardware.usedMemoryBytes - baselineMemoryBytes)
+                              if ramDelta > 150_000_000 {
+                                  state.loadedBytesEstimate = min(totalBytes, ramDelta)
+                                  state.statusNote = "Streaming weights into Unified Memory (\(String(format: "%.1f GB", Double(ramDelta) / 1_073_741_824.0)))..."
+                              } else {
+                                  state.loadedBytesEstimate = 0
+                                  state.statusNote = "Reading weights from external drive..."
+                              }
+                          }
                           self.activeModelLoadingState = state
                       }
                   }
 
                   Task {
                       do {
+                          // 1. Ensure engine is online
+                          if !isEngineOnline {
+                              processManager.startManagedServer(config: serverConfig)
+                              try? await Task.sleep(nanoseconds: 1_200_000_000)
+                              await refreshEngineStatus()
+                          }
+
+                          // 2. Verify that running engine actually sees targetModel in its tags
+                          let engineTags = (try? await client.fetchInstalledModels(baseURL: serverConfig.baseURLString)) ?? []
+                          if !engineTags.contains(where: { $0.name == targetModel }) {
+                              activeModelLoadingState?.statusNote = "Linking external models folder to engine..."
+                              await processManager.restartServerAndAwaitReady(with: serverConfig, client: client)
+                              await refreshEngineStatus()
+                          }
+
+                          // 3. Unload previous model if needed
                           if let oldModel = unloadFirst {
+                              activeModelLoadingState?.statusNote = "Unloading \(oldModel)..."
                               try? await client.setModelResidency(baseURL: serverConfig.baseURLString, modelName: oldModel, keepAlive: 0)
                           }
+
+                          // 4. Send load request to Ollama with generous timeout
+                          activeModelLoadingState?.statusNote = "Streaming model weights into Unified Memory..."
                           try await client.setModelResidency(
                               baseURL: serverConfig.baseURLString,
                               modelName: targetModel,
                               keepAlive: keepAlive,
                               numCtx: ctx
                           )
+
                           loadingProgressTimer?.invalidate()
                           loadingProgressTimer = nil
                           activeModelLoadingState = nil
