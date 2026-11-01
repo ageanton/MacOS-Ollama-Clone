@@ -471,6 +471,7 @@ jobs:
               case close = "xmark"
               case pin = "pin"
               case externalDrive = "externaldrive"
+              case database = "server.rack"
               case arrowDown = "arrow.down"
               case folder = "folder"
           }
@@ -4911,7 +4912,7 @@ jobs:
               private var discoveredGGUFSection: some View {
                   Divider().overlay(palette.hairlineBorder).padding(.vertical, 4)
                   HStack {
-                      StudioIcon(.database, size: 12, color: palette.accent)
+                      StudioIcon(.externalDrive, size: 12, color: palette.accent)
                       Text("Discovered on External Drive (\(appState.discoveredRawGGUFFiles.count))")
                           .font(theme.captionFont(boost: 1))
                           .foregroundStyle(palette.accent)
