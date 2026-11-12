@@ -1,0 +1,743 @@
+Apply the following 5 exact search-and-replace edits to `.github/workflows/build.yml`. Do NOT truncate or omit any other lines in the file, and preserve the exact YAML indentation.
+
+---
+
+### EDIT 1 OF 5: Cache Metal Device Max Working Set Size (`ReasoningAndMemoryEngine.swift`)
+
+**FIND:**
+          public enum HardwareMemoryEngine {
+              public static func queryOllamaProcessResidentBytes() -> Int64 {
+
+**REPLACE WITH:**
+          public enum HardwareMemoryEngine {
+              public static let cachedMetalRecommendedMaxBytes: Int64 = {
+                  let totalRAM = Int64(ProcessInfo.processInfo.physicalMemory)
+                  return Int64(MTLCreateSystemDefaultDevice()?.recommendedMaxWorkingSetSize ?? UInt64(Double(totalRAM) * 0.75))
+              }()
+
+              public static func queryOllamaProcessResidentBytes() -> Int64 {
+
+---
+
+### EDIT 2 OF 5: Use Cached Metal Ceiling (`ReasoningAndMemoryEngine.swift`)
+
+**FIND:**
+                  let metalMax = Int64(MTLCreateSystemDefaultDevice()?.recommendedMaxWorkingSetSize ?? UInt64(Double(totalRAM) * 0.75))
+
+**REPLACE WITH:**
+                  let metalMax = cachedMetalRecommendedMaxBytes
+
+---
+
+### EDIT 3 OF 5: Offload Kernel Telemetry from Main Thread, Instant Trackpad Scroll Disengagement & 30fps Stream Pacing (`WorkstationStore.swift`)
+
+**FIND:**
+              private var scrollWheelMonitor: Any? = nil
+              private var memoryPressureSource: DispatchSourceMemoryPressure? = nil
+              private var windowFullscreenObservers: [NSObjectProtocol] = []
+              private var searchCancellable: AnyCancellable? = nil
+
+**REPLACE WITH:**
+              private var scrollWheelMonitor: Any? = nil
+              private var memoryPressureSource: DispatchSourceMemoryPressure? = nil
+              private var windowFullscreenObservers: [NSObjectProtocol] = []
+              private var searchCancellable: AnyCancellable? = nil
+              private var lastStreamUIUpdateTime: Date = .distantPast
+
+**AND in `WorkstationStore.swift`, FIND:**
+              private func installNativeTrackpadScrollMonitor() {
+                  scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                      guard let self = self else { return event }
+                      if self.isStreamingGeneration && !self.isWindowFullscreen && event.scrollingDeltaY > 5.0 {
+                          Task { @MainActor in
+                              if !self.isScrolledAwayFromBottom {
+                                  self.isScrolledAwayFromBottom = true
+                              }
+                          }
+                      }
+                      return event
+                  }
+              }
+
+              private func startLiveTelemetryLoop() {
+                  telemetryTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+                      Task { @MainActor [weak self] in
+                          guard let self = self else { return }
+                          await self.pollOllamaRunningProcesses()
+                          self.recalculateHardwareTelemetry()
+                      }
+                  }
+              }
+
+**REPLACE WITH:**
+              private func installNativeTrackpadScrollMonitor() {
+                  scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                      guard let self = self else { return event }
+                      // Immediately disengage auto-scroll on any upward trackpad gesture in both Windowed and Fullscreen modes
+                      if event.scrollingDeltaY > 1.2 {
+                          Task { @MainActor in
+                              if self.isStreamingGeneration && !self.isScrolledAwayFromBottom {
+                                  self.isScrolledAwayFromBottom = true
+                              }
+                          }
+                      }
+                      return event
+                  }
+              }
+
+              private func startLiveTelemetryLoop() {
+                  telemetryTimer = Timer.scheduledTimer(withTimeInterval: 1.25, repeats: true) { [weak self] _ in
+                      Task { @MainActor [weak self] in
+                          guard let self = self else { return }
+                          await self.pollOllamaRunningProcesses()
+                          self.recalculateHardwareTelemetry()
+                      }
+                  }
+              }
+
+**AND in `WorkstationStore.swift`, FIND:**
+              public func recalculateHardwareTelemetry() {
+                  let targetBytes = isLoadingModelWeights ? targetLoadingModelBytes : (activeModelDescriptor?.sizeBytes ?? 0)
+                  let effectiveVRAM = isLoadingModelWeights ? max(liveOllamaResidentBytes, simulatedLoadFloorBytes) : liveOllamaResidentBytes
+                  self.memorySnapshot = HardwareMemoryEngine.queryAppleSiliconMemory(
+                      liveOllamaVRAMBytes: effectiveVRAM,
+                      estimatedKVCacheBytes: estimatedKVCacheBytes,
+                      baselineRAMBytesBeforeLoad: baselineRAMBytesBeforeLoad,
+                      targetModelSizeBytes: targetBytes,
+                      previousHistory: memorySnapshot.historySamplesGB
+                  )
+              }
+
+**REPLACE WITH:**
+              public func recalculateHardwareTelemetry() {
+                  let targetBytes = isLoadingModelWeights ? targetLoadingModelBytes : (activeModelDescriptor?.sizeBytes ?? 0)
+                  let effectiveVRAM = isLoadingModelWeights ? max(liveOllamaResidentBytes, simulatedLoadFloorBytes) : liveOllamaResidentBytes
+                  let kvBytes = estimatedKVCacheBytes
+                  let baseBytes = baselineRAMBytesBeforeLoad
+                  let prevHist = memorySnapshot.historySamplesGB
+
+                  Task.detached(priority: .utility) {
+                      let snap = HardwareMemoryEngine.queryAppleSiliconMemory(
+                          liveOllamaVRAMBytes: effectiveVRAM,
+                          estimatedKVCacheBytes: kvBytes,
+                          baselineRAMBytesBeforeLoad: baseBytes,
+                          targetModelSizeBytes: targetBytes,
+                          previousHistory: prevHist
+                      )
+                      await MainActor.run { [weak self] in
+                          self?.memorySnapshot = snap
+                      }
+                  }
+              }
+
+**AND in `WorkstationStore.swift`, inside `processStreamLine`, FIND:**
+                  let elapsed = max(0.05, Date().timeIntervalSince(startWall))
+                  var tps = Double(max(1, tokenCounter)) / elapsed
+                  if let ec = evalTokenCountFromEngine, let ed = evalDurationFromEngineNs, ed > 0 {
+                      tps = Double(ec) / (Double(ed) / 1_000_000_000.0)
+                  }
+                  let currentTotal = priorTokens + (evalTokenCountFromEngine ?? tokenCounter)
+
+                  self.updateStreamingNode(
+                      assistantID: assistantID,
+                      targetSessionID: targetSessionID,
+                      parser: parser,
+                      tps: tps,
+                      elapsed: elapsed,
+                      totalTokens: currentTotal,
+                      promptTokens: promptEvalCountFromEngine ?? 0,
+                      isFinal: false
+                  )
+              }
+
+**REPLACE WITH:**
+                  let isDoneChunk = (json["done"] as? Bool) == true
+                  let now = Date()
+                  // Coalesce UI mutations to ~28fps (36ms) so rapid token streams never starve main-thread scrolling
+                  guard isDoneChunk || tokenCounter <= 2 || now.timeIntervalSince(self.lastStreamUIUpdateTime) >= 0.036 else {
+                      return
+                  }
+                  self.lastStreamUIUpdateTime = now
+
+                  let elapsed = max(0.05, now.timeIntervalSince(startWall))
+                  var tps = Double(max(1, tokenCounter)) / elapsed
+                  if let ec = evalTokenCountFromEngine, let ed = evalDurationFromEngineNs, ed > 0 {
+                      tps = Double(ec) / (Double(ed) / 1_000_000_000.0)
+                  }
+                  let currentTotal = priorTokens + (evalTokenCountFromEngine ?? tokenCounter)
+
+                  self.updateStreamingNode(
+                      assistantID: assistantID,
+                      targetSessionID: targetSessionID,
+                      parser: parser,
+                      tps: tps,
+                      elapsed: elapsed,
+                      totalTokens: currentTotal,
+                      promptTokens: promptEvalCountFromEngine ?? 0,
+                      isFinal: false
+                  )
+              }
+
+---
+
+### EDIT 4 OF 5: High-Craft Editorial Thinking Region & Responsive Jump Button (`EditorialConversationView.swift`)
+
+**FIND:**
+                      .overlay(alignment: .bottom) {
+                          if store.isScrolledAwayFromBottom && !store.isComposerCanvasExpanded {
+                              HighContrastJumpToLatestButton(tokens: tokens) {
+                                  store.isScrolledAwayFromBottom = false
+                                  withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
+                                      proxy.scrollTo("STREAM_BOTTOM_ANCHOR", anchor: .bottom)
+                                  }
+                              }
+                              .padding(.bottom, 96)
+                              .transition(.scale.combined(with: .opacity))
+                          }
+                      }
+
+**REPLACE WITH:**
+                      .overlay(alignment: .bottom) {
+                          if store.isScrolledAwayFromBottom && !store.isComposerCanvasExpanded {
+                              HighContrastJumpToLatestButton(tokens: tokens) {
+                                  store.isScrolledAwayFromBottom = false
+                                  if store.isStreamingGeneration {
+                                      proxy.scrollTo("STREAM_BOTTOM_ANCHOR", anchor: .bottom)
+                                  } else {
+                                      withAnimation(.easeOut(duration: 0.18)) {
+                                          proxy.scrollTo("STREAM_BOTTOM_ANCHOR", anchor: .bottom)
+                                      }
+                                  }
+                              }
+                              .padding(.bottom, 104)
+                              .transition(.scale.combined(with: .opacity))
+                          }
+                      }
+
+**AND in `EditorialConversationView.swift`, FIND:**
+              @ViewBuilder
+              private func thinkingDisclosureView(
+                  for node: ConversationMessageNode,
+                  isStreaming: Bool,
+                  opticalFontSize: CGFloat
+              ) -> some View {
+                  let relativeThinkingFontSize = max(11.5, opticalFontSize - 1.2)
+                  VStack(alignment: .leading, spacing: 6) {
+                      Button {
+                          guard let sIdx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }),
+                                var target = store.sessions[sIdx].nodes[node.id] else { return }
+                          withAnimation(.easeOut(duration: 0.14)) {
+                              target.isThinkingExpanded.toggle()
+                              store.sessions[sIdx].nodes[node.id] = target
+                          }
+                      } label: {
+                          HStack(spacing: 6) {
+                              Image(systemName: "chevron.right")
+                                  .font(.system(size: 9, weight: .semibold))
+                                  .rotationEffect(.degrees(node.isThinkingExpanded ? 90 : 0))
+                              Text(node.wasStoppedMidThinking ? "Thinking (Stopped)" : "Thinking")
+                                  .font(typo.sans(size: max(11.5, opticalFontSize - 1.5), weight: .medium))
+                              Text(node.isThinkingComplete
+                                   ? String(format: "(%.1fs)", node.metrics?.thinkingDurationSec ?? 0.0)
+                                   : String(format: "(%.1fs…)", store.liveElapsedSeconds))
+                                  .font(typo.mono(size: 10.5))
+                          }
+                          .foregroundColor(tokens.secondaryText)
+                      }
+                      .buttonStyle(.plain)
+
+                      if node.isThinkingExpanded {
+                          Text(node.thinkingTrace.isEmpty ? "Reasoning…" : node.thinkingTrace)
+                              .font(typo.sans(size: relativeThinkingFontSize))
+                              .lineSpacing(CGFloat(relativeThinkingFontSize * 0.38))
+                              .foregroundColor(tokens.secondaryText)
+                              .textSelection(.enabled)
+                              .padding(12)
+                              .frame(maxWidth: .infinity, alignment: .leading)
+                              .background(tokens.elevatedSurface)
+                              .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                      }
+                  }
+              }
+
+**REPLACE WITH:**
+              @ViewBuilder
+              private func thinkingDisclosureView(
+                  for node: ConversationMessageNode,
+                  isStreaming: Bool,
+                  opticalFontSize: CGFloat
+              ) -> some View {
+                  let monoThinkingSize = max(11.5, opticalFontSize - 1.6)
+                  let headerMonoSize = max(10.0, opticalFontSize - 3.2)
+                  let wordCount = max(1, node.thinkingTrace.split { $0.isWhitespace || $0.isNewline }.count)
+                  let isActivelyThinking = !node.isThinkingComplete && isStreaming
+
+                  VStack(alignment: .leading, spacing: 8) {
+                      Button {
+                          guard let sIdx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }),
+                                var target = store.sessions[sIdx].nodes[node.id] else { return }
+                          withAnimation(.easeOut(duration: 0.14)) {
+                              target.isThinkingExpanded.toggle()
+                              store.sessions[sIdx].nodes[node.id] = target
+                          }
+                      } label: {
+                          HStack(spacing: 7) {
+                              Circle()
+                                  .fill(isActivelyThinking ? tokens.accentAction : tokens.mutedText.opacity(0.65))
+                                  .frame(width: 5.5, height: 5.5)
+
+                              Text(node.wasStoppedMidThinking ? "THOUGHT PROCESS · STOPPED" : (isActivelyThinking ? "THINKING LIVE" : "THOUGHT PROCESS"))
+                                  .font(typo.mono(size: headerMonoSize, weight: .semibold))
+                                  .tracking(0.6)
+                                  .foregroundColor(tokens.secondaryText)
+
+                              Text(node.isThinkingComplete
+                                   ? String(format: "%.1fs", node.metrics?.thinkingDurationSec ?? 0.0)
+                                   : String(format: "%.1fs…", store.liveElapsedSeconds))
+                                  .font(typo.mono(size: headerMonoSize, weight: .medium))
+                                  .foregroundColor(tokens.mutedText)
+
+                              if !node.thinkingTrace.isEmpty {
+                                  Text("· \(wordCount) \(wordCount == 1 ? "word" : "words")")
+                                      .font(typo.mono(size: headerMonoSize))
+                                      .foregroundColor(tokens.mutedText)
+                              }
+
+                              Image(systemName: "chevron.right")
+                                  .font(.system(size: 8.5, weight: .bold))
+                                  .foregroundColor(tokens.mutedText)
+                                  .rotationEffect(.degrees(node.isThinkingExpanded ? 90 : 0))
+                          }
+                          .padding(.horizontal, 10)
+                          .padding(.vertical, 5)
+                          .background(tokens.elevatedSurface.opacity(0.75))
+                          .clipShape(Capsule())
+                          .overlay(
+                              Capsule().strokeBorder(tokens.hairline, lineWidth: 1)
+                          )
+                      }
+                      .buttonStyle(.plain)
+
+                      if node.isThinkingExpanded {
+                          HStack(alignment: .top, spacing: 0) {
+                              Rectangle()
+                                  .fill(tokens.accentAction.opacity(0.42))
+                                  .frame(width: 2.5)
+
+                              Text(node.thinkingTrace.isEmpty ? "Deliberating…" : node.thinkingTrace)
+                                  .font(typo.mono(size: monoThinkingSize, weight: .regular))
+                                  .lineSpacing(CGFloat(monoThinkingSize * 0.36))
+                                  .foregroundColor(tokens.secondaryText)
+                                  .textSelection(.enabled)
+                                  .padding(.horizontal, 14)
+                                  .padding(.vertical, 11)
+                                  .frame(maxWidth: .infinity, alignment: .leading)
+                          }
+                          .background(tokens.sidebarBackground.opacity(0.75))
+                          .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                          .overlay(
+                              RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                  .strokeBorder(tokens.hairline, lineWidth: 1)
+                          )
+                      }
+                  }
+                  .padding(.bottom, 4)
+              }
+
+---
+
+### EDIT 5 OF 5: Unified Persistent Composer View Tree (Eliminates Line-2 View Destruction, Beep & Focus Loss in `ComposerAndInspectorViews.swift`)
+
+**FIND:**
+                      // 3. Main Composer Instrument (Single-Line Pill vs. Two-Deck Multi-Line / Expanded Canvas)
+                      VStack(alignment: .leading, spacing: 0) {
+                          // Attachment Chips Row (When Present)
+                          if !store.pendingAttachments.isEmpty {
+                              ScrollView(.horizontal, showsIndicators: false) {
+                                  HStack(spacing: 8) {
+                                      ForEach(store.pendingAttachments.indices, id: \.self) { idx in
+                                          let chip = store.pendingAttachments[idx]
+                                          HStack(spacing: 6) {
+                                              Image(systemName: chip.kind == .downscaledVisionImage ? "photo" : "doc.text")
+                                                  .font(.system(size: 10))
+                                                  .foregroundColor(tokens.secondaryText)
+                                              Text("\(chip.title) (\(chip.formattedByteSize) · ~\(chip.tokenEstimate) tok)")
+                                                  .font(typo.mono(size: 10.5))
+                                                  .foregroundColor(tokens.primaryText)
+                                              Button {
+                                                  store.pendingAttachments.remove(at: idx)
+                                              } label: {
+                                                  Image(systemName: "xmark")
+                                                      .font(.system(size: 9, weight: .bold))
+                                                      .foregroundColor(tokens.secondaryText)
+                                              }
+                                              .buttonStyle(.plain)
+                                          }
+                                          .padding(.horizontal, 8)
+                                          .padding(.vertical, 4)
+                                          .background(tokens.canvasBackground)
+                                          .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                      }
+                                  }
+                                  .padding(.horizontal, 12)
+                                  .padding(.top, 8)
+                                  .padding(.bottom, 4)
+                              }
+                          }
+
+                          if useTwoDeckLayout {
+                              // DECK A: Full-Width Prose Editor with Top-Right Expand/Contract Canvas Button
+                              HStack(alignment: .top, spacing: 6) {
+                                  IMESafeComposerTextView(
+                                      text: Binding(
+                                          get: { store.composerDraft },
+                                          set: { store.handleTextInputOrPaste($0) }
+                                      ),
+                                      isFocused: $isComposerFocused,
+                                      compactHeight: $compactEditorHeight,
+                                      lineCount: $wrappedLineCount,
+                                      placeholder: adaptivePlaceholder,
+                                      tokens: tokens,
+                                      typo: typo,
+                                      fontSize: activeFontSize,
+                                      isSlashMenuVisible: !matchingPersonas.isEmpty,
+                                      onSend: {
+                                          if !store.isStreamingGeneration && store.sendDisabledReason == nil {
+                                              store.sendActivePrompt()
+                                          }
+                                      },
+                                      onSlashMoveUp: { store.moveSlashSelection(delta: -1) },
+                                      onSlashMoveDown: { store.moveSlashSelection(delta: 1) },
+                                      onSlashConfirm: { store.applyHighlightedSlashPersona() },
+                                      onSlashDismiss: { store.isSlashMenuDismissedForCurrentToken = true },
+                                      onLargePaste: { pasted in store.handleTextInputOrPaste(pasted) }
+                                  )
+                                  .frame(height: effectiveEditorHeight)
+
+                                  // Top-Right Expand / Contract Canvas Button
+                                  Button {
+                                      withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                          store.isComposerCanvasExpanded.toggle()
+                                      }
+                                  } label: {
+                                      Image(systemName: store.isComposerCanvasExpanded
+                                            ? "arrow.down.right.and.arrow.up.left"
+                                            : "arrow.up.left.and.arrow.down.right")
+                                          .font(.system(size: 11, weight: .semibold))
+                                          .foregroundColor(store.isComposerCanvasExpanded ? tokens.accentAction : tokens.secondaryText)
+                                          .frame(width: 24, height: 24)
+                                          .background(
+                                              RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                  .fill(tokens.canvasBackground.opacity(0.85))
+                                          )
+                                          .overlay(
+                                              RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                  .strokeBorder(tokens.hairline, lineWidth: 1)
+                                          )
+                                  }
+                                  .buttonStyle(.plain)
+                                  .padding(.top, 2)
+                                  .help(store.isComposerCanvasExpanded ? "Restore compact 3-line input" : "Expand prompt canvas for long-form editing")
+                              }
+                              .padding(.horizontal, 12)
+                              .padding(.top, 8)
+                              .padding(.bottom, 6)
+
+                              HairlineDivider(tokens: tokens)
+                                  .padding(.horizontal, 10)
+
+                              // DECK B: Cohesive Bottom Control Bar (Paperclip, Active Persona Chip, Line/Token Info, Parameters, Send)
+                              HStack(alignment: .center, spacing: 8) {
+                                  Button(action: attachLocalFileOrVisionAsset) {
+                                      HStack(spacing: 4) {
+                                          Image(systemName: "paperclip")
+                                              .font(.system(size: 12, weight: .medium))
+                                          Text("Attach")
+                                              .font(typo.sans(size: 11.5, weight: .medium))
+                                      }
+                                      .foregroundColor(tokens.secondaryText)
+                                      .padding(.horizontal, 8)
+                                      .frame(height: 26)
+                                      .background(tokens.canvasBackground)
+                                      .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                      .overlay(
+                                          RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                              .strokeBorder(tokens.hairline, lineWidth: 1)
+                                      )
+                                  }
+                                  .buttonStyle(.plain)
+                                  .help("Attach code, text file, or image")
+
+                                  if let activeTrigger = store.activeSession?.activePersonaTrigger {
+                                      HStack(spacing: 4) {
+                                          Text(activeTrigger)
+                                              .font(typo.mono(size: 10.5, weight: .semibold))
+                                              .foregroundColor(tokens.accentAction)
+                                          Button {
+                                              if let idx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }) {
+                                                  store.sessions[idx].activePersonaTrigger = nil
+                                                  store.saveAllState()
+                                              }
+                                          } label: {
+                                              Image(systemName: "xmark")
+                                                  .font(.system(size: 8, weight: .bold))
+                                                  .foregroundColor(tokens.mutedText)
+                                          }
+                                          .buttonStyle(.plain)
+                                      }
+                                      .padding(.horizontal, 8)
+                                      .frame(height: 26)
+                                      .background(tokens.canvasBackground)
+                                      .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                      .overlay(
+                                          RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                              .strokeBorder(tokens.hairline, lineWidth: 1)
+                                      )
+                                  }
+
+                                  if !store.composerDraft.isEmpty {
+                                      Text("\(wrappedLineCount) \(wrappedLineCount == 1 ? "line" : "lines") · ~\(max(1, store.composerDraft.count / 4)) tok")
+                                          .font(typo.mono(size: 10))
+                                          .foregroundColor(tokens.mutedText)
+                                  }
+
+                                  Spacer()
+
+                                  parametersPopoverButton
+
+                                  sendOrStopActionButton
+                              }
+                              .padding(.horizontal, 10)
+                              .padding(.vertical, 7)
+                          } else {
+                              // STAGE 1: Sleek Single-Line Pill Layout
+                              HStack(alignment: .center, spacing: 8) {
+                                  Button(action: attachLocalFileOrVisionAsset) {
+                                      Image(systemName: "paperclip")
+                                          .font(.system(size: 13, weight: .medium))
+                                          .foregroundColor(tokens.secondaryText)
+                                          .frame(width: 30, height: 30)
+                                          .background(Circle().fill(tokens.canvasBackground))
+                                  }
+                                  .buttonStyle(.plain)
+                                  .help("Attach code, text file, or image")
+
+                                  IMESafeComposerTextView(
+                                      text: Binding(
+                                          get: { store.composerDraft },
+                                          set: { store.handleTextInputOrPaste($0) }
+                                      ),
+                                      isFocused: $isComposerFocused,
+                                      compactHeight: $compactEditorHeight,
+                                      lineCount: $wrappedLineCount,
+                                      placeholder: adaptivePlaceholder,
+                                      tokens: tokens,
+                                      typo: typo,
+                                      fontSize: activeFontSize,
+                                      isSlashMenuVisible: !matchingPersonas.isEmpty,
+                                      onSend: {
+                                          if !store.isStreamingGeneration && store.sendDisabledReason == nil {
+                                              store.sendActivePrompt()
+                                          }
+                                      },
+                                      onSlashMoveUp: { store.moveSlashSelection(delta: -1) },
+                                      onSlashMoveDown: { store.moveSlashSelection(delta: 1) },
+                                      onSlashConfirm: { store.applyHighlightedSlashPersona() },
+                                      onSlashDismiss: { store.isSlashMenuDismissedForCurrentToken = true },
+                                      onLargePaste: { pasted in store.handleTextInputOrPaste(pasted) }
+                                  )
+                                  .frame(height: 28)
+
+                                  Button {
+                                      withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                          store.isComposerCanvasExpanded = true
+                                      }
+                                  } label: {
+                                      Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                          .font(.system(size: 10.5, weight: .semibold))
+                                          .foregroundColor(tokens.mutedText)
+                                          .frame(width: 24, height: 24)
+                                  }
+                                  .buttonStyle(.plain)
+                                  .help("Expand prompt canvas")
+
+                                  parametersPopoverButton
+
+                                  sendOrStopActionButton
+                              }
+                              .padding(.horizontal, 10)
+                              .padding(.vertical, 6)
+                          }
+                      }
+                      .background(tokens.elevatedSurface)
+                      .clipShape(RoundedRectangle(cornerRadius: useTwoDeckLayout ? 14 : 20, style: .continuous))
+                      .overlay(
+                          RoundedRectangle(cornerRadius: useTwoDeckLayout ? 14 : 20, style: .continuous)
+                              .strokeBorder(isComposerFocused ? tokens.strongBorder : tokens.hairline, lineWidth: 1)
+                      )
+
+**REPLACE WITH:**
+                      // 3. Main Composer Instrument (Single Persistent View Identity — Never Destroys NSTextView or Loses Focus!)
+                      VStack(alignment: .leading, spacing: 0) {
+                          if !store.pendingAttachments.isEmpty {
+                              ScrollView(.horizontal, showsIndicators: false) {
+                                  HStack(spacing: 8) {
+                                      ForEach(store.pendingAttachments.indices, id: \.self) { idx in
+                                          let chip = store.pendingAttachments[idx]
+                                          HStack(spacing: 6) {
+                                              Image(systemName: chip.kind == .downscaledVisionImage ? "photo" : "doc.text")
+                                                  .font(.system(size: 10))
+                                                  .foregroundColor(tokens.secondaryText)
+                                              Text("\(chip.title) (\(chip.formattedByteSize) · ~\(chip.tokenEstimate) tok)")
+                                                  .font(typo.mono(size: 10.5))
+                                                  .foregroundColor(tokens.primaryText)
+                                              Button {
+                                                  store.pendingAttachments.remove(at: idx)
+                                              } label: {
+                                                  Image(systemName: "xmark")
+                                                      .font(.system(size: 9, weight: .bold))
+                                                      .foregroundColor(tokens.secondaryText)
+                                              }
+                                              .buttonStyle(.plain)
+                                          }
+                                          .padding(.horizontal, 8)
+                                          .padding(.vertical, 4)
+                                          .background(tokens.canvasBackground)
+                                          .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                      }
+                                  }
+                                  .padding(.horizontal, 12)
+                                  .padding(.top, 8)
+                                  .padding(.bottom, 4)
+                              }
+                          }
+
+                          // DECK A: Persistent Full-Width Prose Editor + Top-Right Expand/Contract Canvas Button
+                          HStack(alignment: .top, spacing: 6) {
+                              IMESafeComposerTextView(
+                                  text: Binding(
+                                      get: { store.composerDraft },
+                                      set: { store.handleTextInputOrPaste($0) }
+                                  ),
+                                  isFocused: $isComposerFocused,
+                                  compactHeight: $compactEditorHeight,
+                                  lineCount: $wrappedLineCount,
+                                  placeholder: adaptivePlaceholder,
+                                  tokens: tokens,
+                                  typo: typo,
+                                  fontSize: activeFontSize,
+                                  isSlashMenuVisible: !matchingPersonas.isEmpty,
+                                  onSend: {
+                                      if !store.isStreamingGeneration && store.sendDisabledReason == nil {
+                                          store.sendActivePrompt()
+                                      }
+                                  },
+                                  onSlashMoveUp: { store.moveSlashSelection(delta: -1) },
+                                  onSlashMoveDown: { store.moveSlashSelection(delta: 1) },
+                                  onSlashConfirm: { store.applyHighlightedSlashPersona() },
+                                  onSlashDismiss: { store.isSlashMenuDismissedForCurrentToken = true },
+                                  onLargePaste: { pasted in store.handleTextInputOrPaste(pasted) }
+                              )
+                              .frame(height: effectiveEditorHeight)
+
+                              Button {
+                                  withAnimation(.easeOut(duration: 0.16)) {
+                                      store.isComposerCanvasExpanded.toggle()
+                                  }
+                              } label: {
+                                  Image(systemName: store.isComposerCanvasExpanded
+                                        ? "arrow.down.right.and.arrow.up.left"
+                                        : "arrow.up.left.and.arrow.down.right")
+                                      .font(.system(size: 10.5, weight: .semibold))
+                                      .foregroundColor(store.isComposerCanvasExpanded ? tokens.accentAction : tokens.secondaryText)
+                                      .frame(width: 24, height: 24)
+                                      .background(
+                                          RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                              .fill(tokens.canvasBackground.opacity(0.85))
+                                      )
+                                      .overlay(
+                                          RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                              .strokeBorder(tokens.hairline, lineWidth: 1)
+                                      )
+                              }
+                              .buttonStyle(.plain)
+                              .padding(.top, 2)
+                              .help(store.isComposerCanvasExpanded ? "Restore compact 3-line input" : "Expand prompt canvas for long-form editing")
+                          }
+                          .padding(.horizontal, 12)
+                          .padding(.top, 8)
+                          .padding(.bottom, 4)
+
+                          HairlineDivider(tokens: tokens)
+                              .padding(.horizontal, 12)
+
+                          // DECK B: Persistent Bottom Control Bar
+                          HStack(alignment: .center, spacing: 8) {
+                              Button(action: attachLocalFileOrVisionAsset) {
+                                  HStack(spacing: 4) {
+                                      Image(systemName: "paperclip")
+                                          .font(.system(size: 11.5, weight: .medium))
+                                      Text("Attach")
+                                          .font(typo.sans(size: 11.5, weight: .medium))
+                                  }
+                                  .foregroundColor(tokens.secondaryText)
+                                  .padding(.horizontal, 8)
+                                  .frame(height: 26)
+                                  .background(tokens.canvasBackground)
+                                  .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                  .overlay(
+                                      RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                          .strokeBorder(tokens.hairline, lineWidth: 1)
+                                  )
+                              }
+                              .buttonStyle(.plain)
+                              .help("Attach code, text file, or image")
+
+                              if let activeTrigger = store.activeSession?.activePersonaTrigger {
+                                  HStack(spacing: 4) {
+                                      Text(activeTrigger)
+                                          .font(typo.mono(size: 10.5, weight: .semibold))
+                                          .foregroundColor(tokens.accentAction)
+                                      Button {
+                                          if let idx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }) {
+                                              store.sessions[idx].activePersonaTrigger = nil
+                                              store.saveAllState()
+                                          }
+                                      } label: {
+                                          Image(systemName: "xmark")
+                                              .font(.system(size: 8, weight: .bold))
+                                              .foregroundColor(tokens.mutedText)
+                                      }
+                                      .buttonStyle(.plain)
+                                  }
+                                  .padding(.horizontal, 8)
+                                  .frame(height: 26)
+                                  .background(tokens.canvasBackground)
+                                  .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                  .overlay(
+                                      RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                          .strokeBorder(tokens.hairline, lineWidth: 1)
+                                  )
+                              }
+
+                              if !store.composerDraft.isEmpty {
+                                  Text("\(wrappedLineCount) \(wrappedLineCount == 1 ? "line" : "lines") · ~\(max(1, store.composerDraft.count / 4)) tok")
+                                      .font(typo.mono(size: 10))
+                                      .foregroundColor(tokens.mutedText)
+                              }
+
+                              Spacer()
+
+                              parametersPopoverButton
+
+                              sendOrStopActionButton
+                          }
+                          .padding(.horizontal, 10)
+                          .padding(.vertical, 6)
+                      }
+                      .background(tokens.elevatedSurface)
+                      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                      .overlay(
+                          RoundedRectangle(cornerRadius: 14, style: .continuous)
+                              .strokeBorder(isComposerFocused ? tokens.strongBorder : tokens.hairline, lineWidth: 1)
+                      )
