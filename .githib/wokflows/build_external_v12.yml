@@ -1,0 +1,41 @@
+name: Build Motif macOS App & DMG
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+          APP_NAME: "Motif"
+          DISPLAY_NAME: "Motif"
+          BUNDLE_ID: "com.motif.studio.macos"
+          VERSION: "12.0.0"
+          BUILD_NUMBER: "1200"
+
+jobs:
+  build-macos-dmg:
+    name: Compile Native Swift 6 Motif Workstation & Package DMG (macOS 15)
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run External Motif Build Script
+        run: |
+          chmod +x motif_build_v12.txt
+          bash --noprofile --norc -e -o pipefail ./motif_build_v12.txt
+
+      - name: Upload Compiled DMG Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Motif-macOS-AppleSilicon-DMG
+          path: build/*.dmg
+          if-no-files-found: error
+          retention-days: 30
