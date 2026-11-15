@@ -1,0 +1,105 @@
+name: Build Motif macOS App & DMG
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: "Motif"
+  DISPLAY_NAME: "Motif"
+  BUNDLE_ID: "com.motif.studio.macos"
+  VERSION: "12.0.0"
+  BUILD_NUMBER: "1200"
+
+jobs:
+  build-macos-dmg:
+    name: Compile Native Swift 6 Motif Workstation & Package DMG (macOS 15)
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Motif Build (reads motif_build.txt)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, re, shlex, sys
+          text = open("motif_build.txt", encoding="utf-8").read()
+          lines = text.split("\n")
+          if not any(l.rstrip() == "    steps:" for l in lines):
+              script = text
+          else:
+              out = ["#!/usr/bin/env bash", "set -e"]
+              in_env = False
+              for l in lines:
+                  if re.match(r"^env:\s*$", l):
+                      in_env = True
+                      continue
+                  if in_env:
+                      m = re.match(r"^  ([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$", l)
+                      if m:
+                          v = m.group(2)
+                          if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                              v = v[1:-1]
+                          out.append("export %s=%s" % (m.group(1), shlex.quote(v)))
+                      elif l.strip() and not l.startswith(" "):
+                          in_env = False
+              i = next(k for k, l in enumerate(lines) if l.rstrip() == "    steps:") + 1
+              n = len(lines)
+              count = 0
+              while i < n:
+                  m = re.match(r"^      - name:\s*(.*)$", lines[i])
+                  if not m:
+                      i += 1
+                      continue
+                  name = m.group(1).strip()
+                  i += 1
+                  wd = None
+                  body = None
+                  while i < n and not re.match(r"^      - ", lines[i]):
+                      l = lines[i]
+                      w = re.match(r"^        working-directory:\s*(\S+)", l)
+                      if w:
+                          wd = w.group(1)
+                      if re.match(r"^        run:\s*\|[-+]?\s*$", l):
+                          i += 1
+                          body = []
+                          while i < n and (not lines[i].strip() or lines[i].startswith(" " * 10)):
+                              body.append(lines[i][10:] if lines[i].strip() else "")
+                              i += 1
+                          continue
+                      i += 1
+                  if body is not None:
+                      count += 1
+                      out.append("printf '::group::%s\\n' " + shlex.quote(name))
+                      out.append("(")
+                      out.append("set -e")
+                      if wd:
+                          out.append("cd " + shlex.quote(wd))
+                      out.extend(body)
+                      out.append(")")
+                      out.append("echo '::endgroup::'")
+              if count == 0:
+                  sys.exit("No run steps found in motif_build.txt")
+              print("Extracted %d build steps" % count)
+              script = "\n".join(out) + "\n"
+          target = os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "motif_run.sh")
+          open(target, "w", encoding="utf-8").write(script)
+          PY
+          bash "${RUNNER_TEMP:-/tmp}/motif_run.sh"
+
+      - name: Upload Compiled DMG Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Motif-macOS-AppleSilicon-DMG
+          path: build/*.dmg
+          if-no-files-found: error
+          retention-days: 30
