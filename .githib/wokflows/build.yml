@@ -28,8 +28,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run External Motif Build Script
-        run: |
-          chmod +x motif_build_v12.txt
+        run: motif_build_v12.txt
           bash --noprofile --norc -e -o pipefail ./motif_build_v12.txt
 
       - name: Upload Compiled DMG Installer
